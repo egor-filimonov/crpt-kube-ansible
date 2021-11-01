@@ -1,0 +1,41 @@
+---
+- hosts: '{{ target_host }}'
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  ignore_errors: yes
+
+#  See ./group_vars/init.yml to set secret variables
+#  vars:
+#    new_hostname: kmaster2
+
+  tasks:
+  # 1. Preparation
+  - name: Set {{ new_hostname }} as a hostname 
+    ansible.builtin.hostname:
+      name: '{{ new_hostname }}'
+#      strategy: systemd
+    register: set_new_hostname
+
+  - name: Set timezone to UTC Eurome/Moscow
+    community.general.timezone:
+      name: Europe/Moscow
+      hwclock: UTC
+    register: set_timezone
+
+  # 2. Join a node
+  - name: Join a node
+    shell: 
+      cmd: '{{ join_command }}'
+      warn: false
+    register: join_node
+
+  # Print tasks' output
+  - debug:
+      var: '{{ item }}'
+    with_items:
+        # 1.
+        - set_new_hostname
+        - set_timezone
+        # 2.
+        - join_node

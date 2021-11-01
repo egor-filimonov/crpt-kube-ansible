@@ -1,0 +1,9 @@
+# init-playbook variables
+#nocommit-begin
+ansible_user: 
+sshkey: 
+ansible_password: 
+ansible_become_pass: 
+join_command:
+userpass: 
+#nocommit-end

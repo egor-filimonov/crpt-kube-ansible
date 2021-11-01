@@ -1,0 +1,16 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  ignore_errors: yes
+
+  tasks:
+  - name: shutdown all hosts
+    shell: 
+      cmd: "shutdown -h now"
+      warn: false
+    register: shutdown_all
+
+  - debug:
+      var: shutdown_all

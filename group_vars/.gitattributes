@@ -1,0 +1,2 @@
+*.yml filter=nocommit_yaml
+*.yaml filter=nocommit_yaml

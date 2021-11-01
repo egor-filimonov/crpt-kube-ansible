@@ -1,0 +1,28 @@
+---
+- hosts: "{{ target_host }}"
+  gather_facts: yes
+  ignore_errors: yes
+
+#  vars:
+#    debug_enabled: true
+
+  tasks:
+  - name: Get join command
+    shell: 
+      cmd: kubeadm token create --print-join-command
+      warn: false
+    register: join_command
+
+  - name: Write join command into group_vars/init.yml
+    lineinfile:
+      path: 'group_vars/init.yml'
+      regexp: "join_command:"
+      line: "join_command: {{ join_command.stdout }}"
+    register: write_join_command
+
+  - debug:
+      var: "{{ item }}"
+    with_items:
+      - join_command
+      - write_join_command
+    when: debug_enabled == true

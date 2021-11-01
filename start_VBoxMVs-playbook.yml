@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  ignore_errors: yes
+
+  tasks:
+  - name: Start VirtualBox VMs for kube cluster
+    shell: 
+      cmd: "vboxmanage startvm {{ item }} --type headless"
+      warn: false
+    with_inventory_hostnames:
+      - all
+    register: start_VBox_VMs
+
+  # Print tasks' output
+  - debug:
+      var: "{{ item }}"
+        - start_VBox_VMs

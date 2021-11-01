@@ -1,0 +1,286 @@
+---
+- hosts: "{{ target_host }}" 
+#- hosts: init
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  ignore_errors: yes
+
+#  See ./group_vars/init.yml to set secret variables
+  vars:
+#    debug_enabled: true
+#    username: kube
+#    username_uid: 2001
+#    rep_cri_o_runc: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_20.04/
+#    rep_cri_o: http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.20/xUbuntu_20.04/
+
+
+  tasks:
+  # 1. Install moniroring and diagnostic apps
+  - name: install packages
+    apt:
+      update_cache: yes
+      state: present
+      name: [ 
+        'pigz',
+        'zsh',
+        'screen',
+        'git',
+        'tree',
+        'htop',
+        'iotop',
+        'iftop',
+        'dstat',
+        'vnstat',
+        'gddrescue',
+        'sshfs',
+        'curl',
+        'nfs-common',
+        'gnupg-agent',
+        'whois',
+        'apt-transport-https',
+        'software-properties-common',
+        'ca-certificates']
+    register: installing_apps
+
+  # 2. Config user and its environment
+  - name: Create hached password for {{ username }}
+    shell:
+      cmd: 'mkpasswd --method=sha-512 -s {{ userpass }}'
+    register: userpass_hashed
+
+  - name: Add the user {{ username }}
+    ansible.builtin.user:
+      name: '{{ username }}'
+      password: '{{ userpass_hashed.stdout }}'
+      uid: '{{ username_uid }}'
+      shell: /bin/zsh
+      groups: sudo
+      append: yes
+    register: add_user
+
+  - name: Uncompressing oh my zsh
+    shell: 
+      cmd: "usermod -g {{ username_uid }} {{ username }}"
+      warn: false
+    register: set_groupid
+
+  - name: Copy oh my zsh
+    copy:
+      src: '/home/{{ ansible_user }}/oh-my-zsh.tar.gz'
+      dest: "/home/{{ username }}/"
+      owner: "{{ username }}"
+      group: "{{ username }}"
+    register: copying_oh_my_zsh
+
+  - name: Uncompressing oh my zsh
+    shell: 
+      cmd: "tar -xf oh-my-zsh.tar.gz; chown -R {{ username }}:{{ username }} ."
+      chdir: "/home/{{ username }}/"
+      warn: false
+    register: uncompressing_oh_my_zsh
+
+  - name: Replace {{ ansible_user }} to {{ username }} in .zshrc
+    ansible.builtin.replace:
+      path: /home/{{ username }}/.zshrc
+      # replacment includes the before string
+      before: 'fpath'
+      regexp: '{{ ansible_user }}'
+      replace: '{{ username }}'
+    register: replace_ansible_user_in_zshrc
+
+  # 3. Config ssh
+  - name: Copy ssh key
+    copy:
+      src: "/home/{{ ansible_user }}/.ssh/{{ sshkey }}"
+      dest: "/home/{{ username }}/.ssh/"
+      owner: "{{ username }}"
+      group: "{{ username }}"
+      mode: 0600
+      force: yes
+    register: copying_ssh_key
+
+  - name: Configure sshd
+    include_role:
+      name: willshersystems.sshd
+    vars:
+      # set default values for sshd
+      sshd_skip_defaults: false
+      sshd:
+        PubkeyAuthentication: yes
+        AuthorizedKeysFile: ".ssh/{{ sshkey }}"
+        PermitRootLogin: no
+    register: configuring_sshd
+
+  # 4. Preparing for installing of k8s tools
+  - name: Remove swapfile from /etc/fstab
+    mount:
+      name: "{{ item }}"
+      fstype: swap
+      state: absent
+    with_items:
+      - swap
+      - none
+    register: swap_mount_disable
+
+  - name: Disable swap
+    command: swapoff -a
+    when: ansible_swaptotal_mb > 0
+    register: swap_disable
+
+  # 5. Prepare cri-o
+  - name: Add apt repository for cri-o
+    apt_repository:
+      repo: "deb {{ rep_cri_o }} /"
+      state: present
+      update_cache: no
+      filename: devel:kubic:libcontainers:stable:cri_o
+    register: add_rep_cri_o
+
+  - name: Add an apt key for cri-o
+    apt_key:
+      url: "{{ rep_cri_o }}Release.key"
+      state: present
+    register: add_apt_key_cri_o
+
+  - name: Add apt repository for cri-o_runc
+    apt_repository:
+      repo: "deb {{ rep_cri_o_runc }} /"
+      state: present
+      update_cache: no
+      filename: devel:kubic:libcontainers:stable:cri_o_runc
+    register: add_rep_cri_o_runc
+
+  - name: Add an apt key for cri-o-runc
+    apt_key:
+      url: "{{ rep_cri_o_runc }}Release.key"
+      state: present
+    register: add_apt_key_cri_o_runc
+
+  - name: Create /etc/modules-load.d/crio.conf
+    blockinfile:
+      path: /etc/modules-load.d/crio.conf
+      create: yes
+      block: |
+        overlay
+        br_netfilter
+    register: create_modprob_crio_conf
+
+  - name: Create /etc/sysctl.d/99-kubernetes-cri.conf
+    blockinfile:
+      path: /etc/sysctl.d/99-kubernetes-cri.conf
+      create: yes
+      block: |
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.ipv4.ip_forward                 = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+    register: create_sysctl_crio_conf
+
+  - name: Load modules and load systemctl
+    shell: 
+      cmd: "{{ item }}"
+      warn: false
+    with_items:
+      - modprobe overlay
+      - modprobe br_netfilter
+      - sysctl --system
+    register: modprobe_sysctl_load
+
+  - name: Install cri-o
+    apt:
+      update_cache: yes
+      state: present
+      name: [
+        'cri-o',
+        'cri-o-runc']
+    register: install_cri_o
+
+  - name: Start cri-o services
+    service:
+      name: "{{ item }}"
+      daemon_reload: yes
+      enabled: yes
+      state: started
+    with_items:
+      - cri-o
+      - crio
+    register: start_cri_o_services
+
+  # 6. Install kubernetes
+  - name: Add apt repository for kubernetes
+    apt_repository:
+      repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+      state: present
+      update_cache: no
+      filename: kubernetes
+    register: add_rep_kube
+
+  - name: Add an apt key for kebernetes
+    apt_key:
+      url: "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
+      state: present
+    register: add_apt_key_kebe
+
+  - name: Install kubernetes
+    apt:
+      update_cache: yes
+      state: present
+      name: [
+        'kubelet',
+        'kubeadm',
+        'kubectl']
+    register: install_kube
+
+  - name: Configure node ip
+    lineinfile:
+      path: /etc/default/kubelet
+      create: yes
+      line: KUBELET_EXTRA_ARGS=--node-ip={{ hostvars[inventory_hostname]['ansible_facts']['all_ipv4_addresses'][1] }}
+    register: set_node_ip
+
+  - name: Start the services
+    service:
+      name: kubelet
+      daemon_reload: yes
+      enabled: yes
+      state: started
+    register: start_kubelet
+
+  # Print tasks' output
+  - debug:
+      var: "{{ item }}"
+    with_items:
+      # 1.
+      - installing_apps
+      # 2.
+      - userpass_hashed
+      - add_user
+      - set_groupid
+      - copying_oh_my_zsh
+      - uncompressing_oh_my_zsh
+      - replace_ansible_user_in_zshrc
+      # 3.
+      - copying_ssh_key
+      - configuring_sshd
+      # 4.
+      - swap_mount_disable
+      - swap_disable
+      # 5.
+      - add_rep_cri_o
+      - add_apt_key_cri_o
+      - add_rep_cri_o_runc
+      - add_apt_key_cri_o_runc
+      - create_modprob_crio_conf
+      - create_sysctl_crio_conf
+      - modprobe_sysctl_load
+      - install_cri_o
+      - start_cri_o_services
+      # 6.
+      - set_node_ip
+      - add_rep_kube
+      - add_apt_key_kebe
+      - install_kube
+      - start_kube_services
+#      - ansible_facts
+      - hostvars[inventory_hostname]['ansible_facts']['all_ipv4_addresses'][1]
+    when: debug_enabled == true

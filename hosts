@@ -1,0 +1,24 @@
+[all]
+kmaster ansible_host=10.0.4.24
+kmaster2 ansible_host=10.0.4.29
+kmon1 ansible_host=10.0.4.28
+knode1 ansible_host=10.0.4.20
+knode2 ansible_host=10.0.4.17
+
+[masters]
+kmaster ansible_host=10.0.4.24
+kmaster2 ansible_host=10.0.4.29
+
+[workers]
+knode1 ansible_host=10.0.4.20
+knode2 ansible_host=10.0.4.17
+
+[monitoring]
+kmon1 ansible_host=10.0.4.28
+
+[init]
+kmaster2
+
+[localhost]
+ansible_connection=local
+ansible_python_interpreter="{{ansible_playbook_python}}"

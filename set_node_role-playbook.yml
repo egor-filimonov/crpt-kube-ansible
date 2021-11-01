@@ -1,0 +1,21 @@
+---
+- hosts: "{{ target_host }}"
+  gather_facts: yes
+  ignore_errors: yes
+
+#  vars:
+#    debug_enabled: true
+#    node_role: master
+
+  tasks:
+  - name: Set a node role
+    shell: 
+      cmd: 'kubectl label node {{ new_hostname }} node-role.kubernetes.io/{{ node_role }}={{ node_role }}'
+      warn: false
+    register: set_role
+
+  - debug:
+      var: "{{ item }}"
+    with_items:
+      - set_role
+    when: debug_enabled == true

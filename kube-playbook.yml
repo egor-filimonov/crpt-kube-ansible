@@ -1,0 +1,31 @@
+---
+- name: Initialize a host
+  import_playbook: init-playbook.yml
+  vars:
+    debug_enabled: true
+    target_host: init
+    username: kube
+    username_uid: 2001
+    rep_cri_o_runc: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_20.04/
+    rep_cri_o: http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.20/xUbuntu_20.04/
+
+- name: Get a join command
+  import_playbook: get_join_command-playbook.yml
+  vars:
+    debug_enabled: true
+    target_host: localhost
+
+- name: Join a master
+  import_playbook: join_node-playbook.yml
+  vars:
+    debug_enabled: true
+    target_host: init
+    new_hostname: kmaster2
+
+- name: set a node as a master
+  import_playbook: set_node_role-playbook.yml
+  vars:
+    debug_enabled: true
+    target_host: localhost
+    new_hostname: kmaster2
+    node_role: master
